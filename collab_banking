@@ -86,12 +86,31 @@ contract Bank {
     }
     
     function interBankTransfer(uint amount) private {
-        List<Address> bankAddressList = cBank.getOtherBanks();
-        address targetBank = bankAddressList[0];
-        //TODO Convert targetBank to Object
-        //Deposite to self reserve
+        address[] banksList = cBank.getOtherBanks();
+        uint i = 0;
+        uint len = banksList.length;
+        while (i < len) {
+            if (owner != banksList[i]) {
+                //TODO not the actual way to convert targetBank to Object
+                Bank bank = Bank(banksList[i]);
+                if(bank.getAdvance(amount)) {
+                    bankReserve += amount;
+                    break;
+                }
+            }
+            i+=1;
+        }
         //Deduct from target bank reserve
         //Pay target bank interest
         cBank.registerTx(owner, targetBank, amount);
+    }
+    
+    function getAdvance(uint amount) public returns(bool) {
+        if (bankReserve < amount) {
+            return false;
+        }
+        //TODO add interest for msg.sender
+        bankReserve -= amount;
+        return true;
     }
 }
