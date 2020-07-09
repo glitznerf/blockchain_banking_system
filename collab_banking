@@ -1,71 +1,88 @@
-pragma solidity >=0.6.0;
-
-// Assumptions:
-//      - interest is only paid for full months without account interaction
-//      - (liquid) fund of the bank comes from independent central bank
+pragma solidity ^0.6.11;
 
 contract Bank {
-    uint internal fund = 100;                           // liquid fund of bank
-    uint internal AuM;                                  // bank's assets under management
-    uint internal lend;                                 // amount lend
-    int public interestRate;                            // interest rate per year
-    address public owner;                               // trusted owner of the contract
-    mapping (address => int) internal balance;          // LUT of balances
-    mapping (address => uint) internal lastTransaction; // LUT of last transaction for interest calculation
-    
-    constructor() public { 
+    uint private interestRate; //in %
+    address private owner;
+    uint private bankReserve;
+
+    constructor() public {
         owner = msg.sender;
+        bankReserve = 1000;
+        interestRate = 20;
     }
 
-    function changeBalance(address client, int number) public {
-        balance[client] += number;
+    struct account_holders {
+        uint accountBal;
+        uint lendAmount;
+        uint lastUpdateTime;
     }
-    
-    function getBalance() public view returns(int) {                    // return the balance of the current account
-        return balance[msg.sender];
+
+    mapping(address => account_holders) customers;
+
+    function withdraw(uint withdrawAmt) public payable {
+        require(withdrawAmt <= customers[msg.sender].accountBal);
+        if (withdrawAmt > bankReserve) {
+            interBankTransfer(withdrawAmt - bankReserve);
+            bankReserve = 0;
+        } else {
+            bankReserve -= withdrawAmt;
+        }
+        
+        customers[msg.sender].accountBal -= withdrawAmt;
+        customers[msg.sender].lastUpdateTime = now;
+        msg.sender.transfer(withdrawAmt);
     }
-    
-    function deposit() external payable {                               // deposit money in the current account
+
+    function deposit() external payable {
+        uint amount = interest(msg.value);
+        customers[msg.sender].accountBal += amount;
+        bankReserve += amount;
+    }
+
+    function lend(uint lendAmt) public payable {
+       if (lendAmt > bankReserve) {
+            interBankTransfer(lendAmt - bankReserve);
+            bankReserve = 0;
+        } else {
+            bankReserve -= lendAmt;
+        }
+        
+        uint amount = interest(lendAmt);
+        customers[msg.sender].lendAmount += amount;
+        msg.sender.transfer(uint(lendAmt));
+    }
+
+    function repayLoan() external payable {
         uint amount = msg.value;
-        interest(amount);                                               // add interest to account
-        balance[msg.sender] += int(amount);                             // increase account balance
-        AuM += amount;                                                  // increase assets under bank's management
+        customers[msg.sender].lendAmount += amount;
+        customers[msg.sender].lastUpdateTime = now;
+        bankReserve += amount;
     }
 
-    function withdraw(uint amount) external {                           // withdraw money from the current account if funds are sufficient
-        interest(amount);                                               // add interest to account
-        require(int(amount)<=balance[msg.sender], "Balance is not sufficient"); 
-        balance[msg.sender] -= int(amount);                             // decrease account balance
-        AuM -= amount;                                                  // decrease assets under bank's management
-        msg.sender.transfer(amount);
+    function getInterestRate() public view returns(uint) {
+        require(interestRate >= 0, "Improper interest rate is set");
+        return interestRate;
+    }
+
+    function updateInterestRate(uint newInterestRate) public {
+        require(msg.sender == owner, "You are not allowed to update the interest rate");
+        interestRate = newInterestRate;
+    }
+
+    function internalTransfer(address destination, uint amount) external {
+        require(amount <= customers[msg.sender].accountBal, "Balance is not sufficient");
+        customers[msg.sender].accountBal = interest(customers[msg.sender].accountBal) - amount;
+        customers[destination].accountBal = interest(customers[destination].accountBal) + amount;
     }
     
-    function interest(uint amount) internal {                                   // calculate interest from last transaction to now, assuming monthly interest
-        uint months = (now-lastTransaction[msg.sender])/60/60/24/30;            // number of full months since last account interaction
-        int Interest = int(amount)*(1+interestRate/12)**(months) - int(amount); // compound interest gained
-        balance[msg.sender] += Interest;                                        // add interest to account 
-        fund -= uint(Interest);                                                 // subtract interest from bank's funds
-        lastTransaction[msg.sender] = now;
+    function interest(uint principle) private returns(uint) {
+        uint months = uint(ufixed(now-customers[msg.sender].lastUpdateTime)/(3600*24*30));
+        ufixed interest = ufixed(principle*interestRate)/1200;
+        customers[msg.sender].lastUpdateTime = now;
+        return principle + uint(interest);
     }
     
-    function internalTransfer(address destination, uint amount) external {  // send money to another account within bank
-        interest(amount);                                                   // add interest to account
-        require(int(amount)<=balance[msg.sender], "Balance is not sufficient"); 
-        balance[msg.sender] -= int(amount);
-        balance[destination] += int(amount);
+    function interBankTransfer(uint amount) private {
+        //TODO Do something
     }
-    
-    function externalTransfers(address payable bank, address destination, uint amount) external {   // send money to another account at another bank
-        interest(amount);                                                   // add interest to account
-        require(int(amount)<=balance[msg.sender], "Balance is not sufficient"); 
-        balance[msg.sender] -= int(amount);
-        AuM -= amount;                                                  // decrease assets under bank's management
-        bank.transfer(amount);
-        bank b = bank(bank);
-        b.changeBalance(destination, int(amount));
-    }
-    //TODO: integrate loan functionality
-    
 }
-
-//TODO: Create instances of banks with class inheritance
