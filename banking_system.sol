@@ -51,6 +51,18 @@ contract Bank {
         balance[msg.sender] -= int(amount);
         balance[destination] += int(amount);
     }
+    
+    // Not working yet:
+    function externalTransfers(address payable bank, address destination, uint amount) external {   // send money to another account at another bank
+        interest(amount);                                                   // add interest to account
+        require(int(amount)<=balance[msg.sender], "Balance is not sufficient"); 
+        balance[msg.sender] -= int(amount);
+        AuM -= amount;                                                  // decrease assets under bank's management
+        bank.transfer(amount);
+        bank b = bank(bank);
+        b.changeBalance(destination, int(amount));
+    }
+    
     //TODO: integrate loan functionality
     
 }
