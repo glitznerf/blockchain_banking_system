@@ -7,11 +7,11 @@ contract Bank {
     CentralBank cBank;
 
     constructor(CentralBank centralBank) public {
+        interestRate = 20;
         owner = msg.sender;
         bankReserve = 1000;
-        interestRate = 20;
         cBank = centralBank;
-        centralBank.registerBank(msg.sender);
+        require(centralBank.registerBank(msg.sender, interestRate), "Interest rate condition was not met.");  
     }
 
     struct account_holders {
@@ -100,8 +100,6 @@ contract Bank {
             }
             i+=1;
         }
-        //Deduct from target bank reserve
-        //Pay target bank interest
         cBank.registerTx(owner, targetBank, amount);
     }
     
