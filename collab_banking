@@ -51,12 +51,11 @@ contract CentralBank {
     function cbLend(address payable receiver, uint amount) external {                      // central bank lending (to commercial bank only)
         require(CbLoans+amount <= MaxCbLoans, "Amount exceeds max permitted CB loans!");
         registerTx(receiver, this, amount);
-        receiver.transfer(amount);
         CbLoans += amount;
+        receiver.transfer(amount);
     }
     
-    function repayCb(address sender) external payable {
-        uint amount = msg.value;
+    function repayCb(address sender, uint amount) external {
         registerTx(this, sender, amount);
         CbLoans -= amount;
     }
@@ -90,11 +89,9 @@ contract Bank {
     }
     
     function withdraw(uint withdrawAmt) external {
-        
-        //TODO add interest to account before withdrawal!
-        
-        
+        customers[msg.sender].accountBal = interestWithAmt(customers[msg.sender].accountBal);
         require(withdrawAmt <= customers[msg.sender].accountBal, "Account lacks sufficient balance.");
+        
         if (withdrawAmt > bankReserve) {
             interBankTransfer(withdrawAmt - bankReserve);
             bankReserve = 0;
@@ -107,13 +104,8 @@ contract Bank {
     }
 
     function deposit() external payable {
-        
-        //TODO: This doesn't make sense, the interest should not be calculated for the deposited amount, but for the existing money in the account between last deposit and this deposit!
-        
-        
-        uint amount = interestWithAmt(msg.value);
-        customers[msg.sender].accountBal += amount;
-        bankReserve += amount;
+        customers[msg.sender].accountBal = interestWithAmt(customers[msg.sender].accountBal) + msg.value;
+        bankReserve += msg.value;
     }
 
     function lend(uint lendAmt) public {
@@ -155,18 +147,17 @@ contract Bank {
     
     
     function interestWithAmt(uint principle) private returns(uint) {
-        uint months = uint(ufixed(now-customers[msg.sender].lastUpdateTime)/(3600*24*30));
+        uint months = uint(ufixed(now-customers[msg.sender].lastUpdateTime)/(60*60*24*30));
         
-        //TODO Make interest compound interest!
-        
-        
-        ufixed interest = ufixed(principle*interestRate*months)/1200;
+        //ufixed interest = ufixed(principle*interestRate*months)/1200;
+        uint interest = principle*(1+interestRate/100/12)**(months) - int(principle);
         customers[msg.sender].lastUpdateTime = now;
         return principle + uint(interest);
     }
     
     function interBankTransfer(uint amount) private {
-        Banks[] banksList = cBank.getOtherBanks();
+        Banks[] banksList = cBank.getOtherBanks();                  //TODO: Error!!
+        
         uint i = 0;
         uint len = banksList.length;
         while (i < len) {
@@ -180,19 +171,21 @@ contract Bank {
             i+=1;
         }
         
-        //TODO: needs an actual transfer of ETH using .transfer(amount)
+        //TODO: needs an actual transfer of ETH using .transfer(amount) !!
         
         
         if (i < len) {                                          // register interbanktransfer in central bank
             cBank.registerTx(this, banksList[i], amount);
         }
         else {                                                  // get fund from central bank!
-            //TODO
+            cBank.cbLend(msg.sender, amount);
         }
     }
     
-    //TODO: implement bank repay CB loans
-    
+    function repayCb(uint amount) public {
+        cBank.repayCb(this, amount);
+        cBank.transfer(amount);                                 //TODO: check if this works??
+    }
     
     function getAdvance(uint amount) public returns(bool) {
         if (bankReserve < amount) {
