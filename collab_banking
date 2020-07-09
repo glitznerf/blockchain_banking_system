@@ -7,11 +7,11 @@ contract Bank {
     CentralBank cBank;
 
     constructor(CentralBank centralBank) public {
-        interestRate = 20;
         owner = msg.sender;
+        interestRate = 20;
         bankReserve = 1000;
         cBank = centralBank;
-        require(centralBank.registerBank(msg.sender, interestRate), "Interest rate condition was not met.");  
+        require(centralBank.registerBank(this, interestRate), "Interest rate condition was not met.");  
     }
 
     struct account_holders {
@@ -23,7 +23,7 @@ contract Bank {
     mapping(address => account_holders) customers;
 
     function withdraw(uint withdrawAmt) public payable {
-        require(withdrawAmt <= customers[msg.sender].accountBal);
+        require(withdrawAmt <= customers[msg.sender].accountBal, "Account lacks sufficient balance.");
         if (withdrawAmt > bankReserve) {
             interBankTransfer(withdrawAmt - bankReserve);
             bankReserve = 0;
@@ -50,15 +50,14 @@ contract Bank {
             bankReserve -= lendAmt;
         }
         
-        uint amount = interestWithAmt(lendAmt);
-        customers[msg.sender].lendAmount += amount;
-        msg.sender.transfer(uint(lendAmt));
+        customers[msg.sender].lendAmount += lendAmt;
+        customers[msg.sender].lastUpdateTime = now;
+        msg.sender.transfer(lendAmt);
     }
 
     function repayLoan() external payable {
         uint amount = msg.value;
-        customers[msg.sender].lendAmount += amount;
-        customers[msg.sender].lastUpdateTime = now;
+        customers[msg.sender].lendAmount = interestWithAmt(customers[msg.sender].lendAmount) - amount;
         bankReserve += amount;
     }
 
@@ -72,7 +71,7 @@ contract Bank {
         interestRate = newInterestRate;
     }
 
-    function internalTransfer(address destination, uint amount) external {
+    function internalCustomerTransfer(address destination, uint amount) external {
         require(amount <= customers[msg.sender].accountBal, "Balance is not sufficient");
         customers[msg.sender].accountBal = interestWithAmt(customers[msg.sender].accountBal) - amount;
         customers[destination].accountBal = interestWithAmt(customers[destination].accountBal) + amount;
@@ -80,19 +79,18 @@ contract Bank {
     
     function interestWithAmt(uint principle) private returns(uint) {
         uint months = uint(ufixed(now-customers[msg.sender].lastUpdateTime)/(3600*24*30));
-        ufixed interest = ufixed(principle*interestRate)/1200;
+        ufixed interest = ufixed(principle*interestRate*months)/1200;
         customers[msg.sender].lastUpdateTime = now;
         return principle + uint(interest);
     }
     
     function interBankTransfer(uint amount) private {
-        address[] banksList = cBank.getOtherBanks();
+        Banks[] banksList = cBank.getOtherBanks();
         uint i = 0;
         uint len = banksList.length;
         while (i < len) {
-            if (owner != banksList[i]) {
-                //TODO not the actual way to convert targetBank to Object
-                Bank bank = Bank(banksList[i]);
+            if (this != banksList[i]) {
+                Bank bank = banksList[i];
                 if(bank.getAdvance(amount)) {
                     bankReserve += amount;
                     break;
@@ -100,7 +98,10 @@ contract Bank {
             }
             i+=1;
         }
-        cBank.registerTx(owner, targetBank, amount);
+        
+        if (i < len) {
+            cBank.registerTx(owner, banksList[i], amount);
+        }
     }
     
     function getAdvance(uint amount) public returns(bool) {
