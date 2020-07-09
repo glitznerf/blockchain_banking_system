@@ -24,32 +24,33 @@ contract Bank {
     
     function deposit() external payable {                               // deposit money in the current account
         uint amount = msg.value;
-        int Interest = interest(balance[msg.sender]);
-        balance[msg.sender] += Interest;                                // add interest to account 
-        fund -= uint(Interest);                                         // subtract interest from bank's funds
-        lastTransaction[msg.sender] = now;
+        interest(amount);                                               // add interest to account
         balance[msg.sender] += int(amount);                             // increase account balance
         AuM += amount;                                                  // increase assets under bank's management
     }
 
     function withdraw(uint amount) external {                           // withdraw money from the current account if funds are sufficient
-        int Interest = interest(balance[msg.sender]);
-        balance[msg.sender] += Interest;                                // add interest to account 
-        fund -= uint(Interest);                                         // subtract interest from bank's funds
-        lastTransaction[msg.sender] = now;
+        interest(amount);                                               // add interest to account
         require(int(amount)<=balance[msg.sender], "Balance is not sufficient"); 
         balance[msg.sender] -= int(amount);                             // decrease account balance
         AuM -= amount;                                                  // decrease assets under bank's management
         msg.sender.transfer(amount);
     }
     
-    function interest(int amount) internal view returns(int) {          // calculate interest from last transaction to now, assuming monthly interest
-        uint months = (now-lastTransaction[msg.sender])/60/60/24/30;    // number of full months since last account interaction
-        int Interest = amount*(1+interestRate/12)**(months) - amount;   // compound interest gained
-        return Interest;
+    function interest(uint amount) internal {                                   // calculate interest from last transaction to now, assuming monthly interest
+        uint months = (now-lastTransaction[msg.sender])/60/60/24/30;            // number of full months since last account interaction
+        int Interest = int(amount)*(1+interestRate/12)**(months) - int(amount); // compound interest gained
+        balance[msg.sender] += Interest;                                        // add interest to account 
+        fund -= uint(Interest);                                                 // subtract interest from bank's funds
+        lastTransaction[msg.sender] = now;
     }
     
-    //TODO: function send money to another account within bank
+    function internalTransfer(address destination, uint amount) external {  // send money to another account within bank
+        interest(amount);                                                   // add interest to account
+        require(int(amount)<=balance[msg.sender], "Balance is not sufficient"); 
+        balance[msg.sender] -= int(amount);
+        balance[destination] += int(amount);
+    }
     //TODO: integrate loan functionality
     
 }
