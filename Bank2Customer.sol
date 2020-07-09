@@ -14,7 +14,7 @@ contract Bank {
     struct account_holders {
         uint accountBal;
         uint lendAmount;
-        bool isBank;
+        uint lastUpdateTime;
     }
 
     mapping(address => account_holders) customers;
@@ -25,21 +25,22 @@ contract Bank {
             //TODO take from another bank
         }
         customers[msg.sender].accountBal -= withdrawAmt;
+        customers[msg.sender].lastUpdateTime = now;
         msg.sender.transfer(withdrawAmt);
         bankReserve -= withdrawAmt;
     }
 
     function deposit() external payable {
-        uint amount = uint(ufixed(msg.value) * (1 + ufixed(interestRate)/100));
+        uint amount = interest(msg.value);
         customers[msg.sender].accountBal += amount;
         bankReserve += amount;
     }
 
     function lend(uint lendAmt) public payable {
-        if (withdrawAmt > bankReserve) {
+        if (lendAmt > bankReserve) {
             //TODO take from another bank
         }
-        uint amount = uint(ufixed(lendAmt) * (1 + ufixed(interestRate/100)));
+        uint amount = interest(lendAmt);
         customers[msg.sender].lendAmount += amount;
         msg.sender.transfer(uint(lendAmt));
         bankReserve -= lendAmt;
@@ -48,6 +49,7 @@ contract Bank {
     function repayLoan() external payable {
         uint amount = msg.value;
         customers[msg.sender].lendAmount += amount;
+        customers[msg.sender].lastUpdateTime = now;
         bankReserve += amount;
     }
 
@@ -63,8 +65,14 @@ contract Bank {
 
     function internalTransfer(address destination, uint amount) external {
         require(amount <= customers[msg.sender].accountBal, "Balance is not sufficient");
-        customers[msg.sender].accountBal -= amount;
-        customers[destination].accountBal += amount;
+        customers[msg.sender].accountBal = interest(customers[msg.sender].accountBal) - amount;
+        customers[destination].accountBal = interest(customers[destination].accountBal) + amount;
+    }
+    
+    function interest(uint principle) private returns(uint) {
+        uint months = uint(ufixed(now-customers[msg.sender].lastUpdateTime)/(3600*24*30));
+        ufixed interest = ufixed(principle*interestRate)/1200;
+        customers[msg.sender].lastUpdateTime = now;
+        return principle + uint(interest);
     }
 }
-
