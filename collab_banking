@@ -4,11 +4,14 @@ contract Bank {
     uint private interestRate; //in %
     address private owner;
     uint private bankReserve;
+    CentralBank cBank;
 
-    constructor() public {
+    constructor(CentralBank centralBank) public {
         owner = msg.sender;
         bankReserve = 1000;
         interestRate = 20;
+        cBank = centralBank;
+        centralBank.registerBank(msg.sender);
     }
 
     struct account_holders {
@@ -34,7 +37,7 @@ contract Bank {
     }
 
     function deposit() external payable {
-        uint amount = interest(msg.value);
+        uint amount = interestWithAmt(msg.value);
         customers[msg.sender].accountBal += amount;
         bankReserve += amount;
     }
@@ -47,7 +50,7 @@ contract Bank {
             bankReserve -= lendAmt;
         }
         
-        uint amount = interest(lendAmt);
+        uint amount = interestWithAmt(lendAmt);
         customers[msg.sender].lendAmount += amount;
         msg.sender.transfer(uint(lendAmt));
     }
@@ -71,11 +74,11 @@ contract Bank {
 
     function internalTransfer(address destination, uint amount) external {
         require(amount <= customers[msg.sender].accountBal, "Balance is not sufficient");
-        customers[msg.sender].accountBal = interest(customers[msg.sender].accountBal) - amount;
-        customers[destination].accountBal = interest(customers[destination].accountBal) + amount;
+        customers[msg.sender].accountBal = interestWithAmt(customers[msg.sender].accountBal) - amount;
+        customers[destination].accountBal = interestWithAmt(customers[destination].accountBal) + amount;
     }
     
-    function interest(uint principle) private returns(uint) {
+    function interestWithAmt(uint principle) private returns(uint) {
         uint months = uint(ufixed(now-customers[msg.sender].lastUpdateTime)/(3600*24*30));
         ufixed interest = ufixed(principle*interestRate)/1200;
         customers[msg.sender].lastUpdateTime = now;
@@ -83,6 +86,12 @@ contract Bank {
     }
     
     function interBankTransfer(uint amount) private {
-        //TODO Do something
+        List<Address> bankAddressList = cBank.getOtherBanks();
+        address targetBank = bankAddressList[0];
+        //TODO Convert targetBank to Object
+        //Deposite to self reserve
+        //Deduct from target bank reserve
+        //Pay target bank interest
+        cBank.registerTx(owner, targetBank, amount);
     }
 }
