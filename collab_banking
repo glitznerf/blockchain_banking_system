@@ -1,28 +1,99 @@
 pragma solidity ^0.6.11;
 
+// Assumptions:
+//      - banks require no minimum reserve
+//      - interest is the same for savings account and loans
+//      - everyone and every bank is allowed to borrow money and to the same conditions (no risk premium)
+//      - the central bank gives out interest-free loans
+//      - interbank transfers are free of interest, because the lender of lenders (central bank) can provide liquidity for free
+//      - interbank transfers and central bank loans need to be recorded in a central bank registry, by timestamp
+//      - negative interest rates are permitted in (commercial) banks
+
+
+contract CentralBank {
+    uint CbLoans;
+    uint MaxCbLoans = 100000000000000000000000000;
+    
+    struct bank {
+        address adr;
+        address owner;
+        int interestRate;
+    }
+    
+    struct tx {                         // interbank transaction structure
+        address lender;
+        address receiver;
+        uint time;
+        uint amount;
+    }
+    
+    mapping(address => bank) banks;
+    string[] bankAdr;
+    mapping(uint => tx) Tx;
+    uint[] TxList;
+    
+    function registerBank(address adr, address owner, int interestRate) external {
+        require(-100 < interestRate < 100, "InterestRate must be within -100% and 100%!");
+        banks[adr] = bank(adr, owner, interestRate);
+        bankAdr.push(adr);
+    }
+    
+    function getOtherBanks() external returns(string[]) {
+        return bankAdr;
+    }
+    
+    function registerTx(address receiver, address lender, uint amount) public {
+        uint time = uint(now);
+        Tx[time] = (lender, receiver, time, amount);
+        TxList.push(time);
+    }
+    
+    function cbLend(address payable receiver, uint amount) external {                      // central bank lending (to commercial bank only)
+        require(CbLoans+amount <= MaxCbLoans, "Amount exceeds max permitted CB loans!");
+        registerTx(receiver, this, amount);
+        receiver.transfer(amount);
+        CbLoans += amount;
+    }
+    
+    function repayCb(address sender) external payable {
+        uint amount = msg.value;
+        registerTx(this, sender, amount);
+        CbLoans -= amount;
+    }
+    
+}
+
 contract Bank {
-    uint private interestRate; //in %
-    address private owner;
+    uint private interestRate;          // interest rate in %
+    address private owner;              // owner of the bank
     uint private bankReserve;
-    CentralBank cBank;
+    CentralBank cBank;                  // init central bank
 
     constructor(CentralBank centralBank) public {
         owner = msg.sender;
         interestRate = 20;
         bankReserve = 1000;
         cBank = centralBank;
-        require(centralBank.registerBank(this, interestRate), "Interest rate condition was not met.");  
+        require(cBank.registerBank(this, owner, interestRate), "Interest rate condition was not met.");  
     }
 
-    struct account_holders {
+    struct account_holder {
         uint accountBal;
         uint lendAmount;
         uint lastUpdateTime;
     }
 
-    mapping(address => account_holders) customers;
-
-    function withdraw(uint withdrawAmt) public payable {
+    mapping(address => account_holder) customers;
+    
+    function accountInfo() public view returns(account_holder) {
+        return customers[msg.sender];
+    }
+    
+    function withdraw(uint withdrawAmt) external {
+        
+        //TODO add interest to account before withdrawal!
+        
+        
         require(withdrawAmt <= customers[msg.sender].accountBal, "Account lacks sufficient balance.");
         if (withdrawAmt > bankReserve) {
             interBankTransfer(withdrawAmt - bankReserve);
@@ -32,17 +103,20 @@ contract Bank {
         }
         
         customers[msg.sender].accountBal -= withdrawAmt;
-        customers[msg.sender].lastUpdateTime = now;
         msg.sender.transfer(withdrawAmt);
     }
 
     function deposit() external payable {
+        
+        //TODO: This doesn't make sense, the interest should not be calculated for the deposited amount, but for the existing money in the account between last deposit and this deposit!
+        
+        
         uint amount = interestWithAmt(msg.value);
         customers[msg.sender].accountBal += amount;
         bankReserve += amount;
     }
 
-    function lend(uint lendAmt) public payable {
+    function lend(uint lendAmt) public {
        if (lendAmt > bankReserve) {
             interBankTransfer(lendAmt - bankReserve);
             bankReserve = 0;
@@ -62,12 +136,12 @@ contract Bank {
     }
 
     function getInterestRate() public view returns(uint) {
-        require(interestRate >= 0, "Improper interest rate is set");
         return interestRate;
     }
 
     function updateInterestRate(uint newInterestRate) public {
-        require(msg.sender == owner, "You are not allowed to update the interest rate");
+        require(msg.sender == owner, "You are not allowed to update the interest rate!");
+        require(-100 < newInterestRate < 100, "InterestRate must be within -100% and 100%!");
         interestRate = newInterestRate;
     }
 
@@ -77,8 +151,15 @@ contract Bank {
         customers[destination].accountBal = interestWithAmt(customers[destination].accountBal) + amount;
     }
     
+    //TODO: external customer transfer!!
+    
+    
     function interestWithAmt(uint principle) private returns(uint) {
         uint months = uint(ufixed(now-customers[msg.sender].lastUpdateTime)/(3600*24*30));
+        
+        //TODO Make interest compound interest!
+        
+        
         ufixed interest = ufixed(principle*interestRate*months)/1200;
         customers[msg.sender].lastUpdateTime = now;
         return principle + uint(interest);
@@ -99,16 +180,28 @@ contract Bank {
             i+=1;
         }
         
-        if (i < len) {
-            cBank.registerTx(owner, banksList[i], amount);
+        //TODO: needs an actual transfer of ETH using .transfer(amount)
+        
+        
+        if (i < len) {                                          // register interbanktransfer in central bank
+            cBank.registerTx(this, banksList[i], amount);
+        }
+        else {                                                  // get fund from central bank!
+            //TODO
         }
     }
+    
+    //TODO: implement bank repay CB loans
+    
     
     function getAdvance(uint amount) public returns(bool) {
         if (bankReserve < amount) {
             return false;
         }
+        
         //TODO add interest for msg.sender
+        
+
         bankReserve -= amount;
         return true;
     }
