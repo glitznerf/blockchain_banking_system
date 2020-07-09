@@ -21,6 +21,9 @@ contract Bank {
 
     function withdraw(uint withdrawAmt) public payable {
         require(withdrawAmt <= customers[msg.sender].accountBal);
+        if (withdrawAmt > bankReserve) {
+            //TODO take from another bank
+        }
         customers[msg.sender].accountBal -= withdrawAmt;
         msg.sender.transfer(withdrawAmt);
         bankReserve -= withdrawAmt;
@@ -33,6 +36,9 @@ contract Bank {
     }
 
     function lend(uint lendAmt) public payable {
+        if (withdrawAmt > bankReserve) {
+            //TODO take from another bank
+        }
         uint amount = uint(ufixed(lendAmt) * (1 + ufixed(interestRate/100)));
         customers[msg.sender].lendAmount += amount;
         msg.sender.transfer(uint(lendAmt));
@@ -61,3 +67,4 @@ contract Bank {
         customers[destination].accountBal += amount;
     }
 }
+
