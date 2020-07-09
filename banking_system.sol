@@ -9,9 +9,12 @@ contract Bank {
     uint internal lend;                                 // amount lend
     int public interestRate;                            // interest rate per year
     address public owner;                               // trusted owner of the contract
+    // AY: We can use mapping(address => Customer) struct for handling mapping to document
     mapping (address => int) internal balance;          // LUT of balances
+    //AY: Apt name would be lastTransactionTime
     mapping (address => uint) internal lastTransaction; // LUT of last transaction for interest calculation
     
+    //PS: This will lock our contract with only 1 customer. We want 1 to n mapping with customer. 1 bank -> multiple customers
     constructor() public { 
         owner = msg.sender;
     }
@@ -35,6 +38,7 @@ contract Bank {
         balance[msg.sender] += Interest;                            // add interest to account 
         fund -= uint(Interest);                                     // subtract interest from bank's funds
         lastTransaction[msg.sender] = now;
+        //AY: this assert stops us from loaning to out customers
         require(int(amount)<=balance[msg.sender], "Balance is not sufficient"); 
         balance[msg.sender] -= int(amount);
         AuM -= amount;
@@ -43,6 +47,8 @@ contract Bank {
     
     function interest(int amount) internal view returns(int) {  // calculate interest from last transaction to now, assuming monthly interest
         uint months = (now-lastTransaction[msg.sender])/60/60/24/30;
+        // AY: interestRate is null and not set.
+        // AY: interestRate/12 will come down to 0 since solidity has only int and it computes division as int. We need to multiply first to not lose decimal values
         int Interest = amount*(1+interestRate/12)**(months) - amount;
         return Interest;
     }
@@ -53,3 +59,4 @@ contract Bank {
 }
 
 //TODO: Create instances of banks with class inheritance
+//AY: This will be done with deploy in remix
