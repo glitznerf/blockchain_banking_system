@@ -1,5 +1,8 @@
 pragma solidity >=0.6.0;
 
+// Assumptions:
+//      - interest is only paid for full months without account interaction
+
 contract Bank {
     uint internal fund = 100;                           // liquid fund of bank
     uint internal AuM;                                  // bank's assets under management
@@ -18,28 +21,30 @@ contract Bank {
         return balance[msg.sender];
     }
     
-    function deposit(uint amount) public payable {                   // deposit money in the current account
-        balance[msg.sender] += interest(balance[msg.sender]);    // add interest to account 
+    function deposit(uint amount) public payable {                  // deposit money in the current account
+        int Interest = interest(balance[msg.sender]);
+        balance[msg.sender] += Interest;                            // add interest to account 
+        fund -= uint(Interest);                                     // subtract interest from bank's funds
         lastTransaction[msg.sender] = now;
         balance[msg.sender] += int(amount);
         AuM += amount;
-        fund -= uint(interest(balance[msg.sender]));
     }
         
-    function withdraw(uint amount) public {                          // withdraw money from the current account if funds are sufficient
-        balance[msg.sender] -= interest(balance[msg.sender]);    // add interest to account 
-        fund -= uint(interest(balance[msg.sender]));
+    function withdraw(uint amount) public {                         // withdraw money from the current account if funds are sufficient
+        int Interest = interest(balance[msg.sender]);
+        balance[msg.sender] += Interest;                            // add interest to account 
+        fund -= uint(Interest);                                     // subtract interest from bank's funds
         lastTransaction[msg.sender] = now;
         require(int(amount)<=balance[msg.sender], "Balance is not sufficient"); 
         balance[msg.sender] -= int(amount);
-        msg.sender.transfer(amount);
         AuM -= amount;
+        msg.sender.transfer(amount);
     }
     
     function interest(int amount) internal view returns(int) {  // calculate interest from last transaction to now, assuming monthly interest
         uint months = (now-lastTransaction[msg.sender])/60/60/24/30;
-        int interest = amount*(1+interestRate/12)**(months) - amount;
-        return interest;
+        int Interest = amount*(1+interestRate/12)**(months) - amount;
+        return Interest;
     }
     
     //TODO: function send money to another account within bank
