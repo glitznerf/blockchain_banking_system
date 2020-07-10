@@ -7,12 +7,12 @@ pragma solidity ^0.6.11;
 //      - the central bank gives out interest-free loans
 //      - interbank transfers are free of interest, because the lender of lenders (central bank) can provide liquidity for free
 //      - interbank transfers and central bank loans need to be recorded in a central bank registry, by timestamp
-//      - negative interest rates are not permitted in (commercial) banks
+//      - negative interest rates are permitted in (commercial) banks
 
 
 contract CentralBank {
     uint CbLoans;
-    uint MaxCbLoans = 2e20;
+    uint MaxCbLoans = 100000000000000000000000000;
     uint maxInterestRate = 30;
 
     struct bank {
@@ -33,7 +33,7 @@ contract CentralBank {
     mapping(uint => tx) Tx;
     uint[] TxList;
 
-    function registerBank(Bank commBank, address owner, uint interestRate) external returns(bool){  // register a new bank
+    function registerBank(Bank commBank, address owner, uint interestRate) external returns(bool){
         if (0 <= interestRate && interestRate < maxInterestRate) {
             //"InterestRate must be within 0% and 100%!"
             return false;
@@ -44,25 +44,25 @@ contract CentralBank {
         return true;
     }
 
-    function getOtherBanks() external returns(Bank[] memory) {                              // get an array of addresses from registered banks
+    function getOtherBanks() external returns(Bank[] memory) {
         return bankList;
     }
 
-    function registerTx(address receiver, address lender, uint amount) public {             // register interbank and central bank transactions
+    function registerTx(address receiver, address lender, uint amount) public {
         uint time = uint(now);
-        Tx[time] = (lender, receiver, time, amount);                                        //TODO: has error 
+        Tx[time] = (lender, receiver, time, amount);
         TxList.push(time);
     }
 
     function cbLend(address payable receiver, uint amount) external {                      // central bank lending (to commercial bank only)
         require(CbLoans+amount <= MaxCbLoans, "Amount exceeds max permitted CB loans!");
-        registerTx(receiver, address(this), amount);
+        registerTx(receiver, this, amount);
         CbLoans += amount;
         receiver.transfer(amount);
     }
 
-    function repayCb(address sender, uint amount) external {                                // bank repaying central bank loans
-        registerTx(address(this), sender, amount);
+    function repayCb(address sender, uint amount) external {
+        registerTx(this, sender, amount);
         CbLoans -= amount;
     }
 
@@ -90,14 +90,17 @@ contract Bank {
 
     mapping(address => accountHolder) users;
 
-    function accountInfo() public view returns(accountHolder memory) {      // return account information
+    //Information about the account holder
+    function accountInfo() public view returns(accountHolder memory) {
         return users[msg.sender];
     }
 
-    function withdraw(uint withdrawAmt) external {                          // withdraw money from account
+    //Withdraw amount from self account
+    function withdraw(uint withdrawAmt) external {
         users[msg.sender].accountBal = getInterestWithBal(users[msg.sender].accountBal);
         require(withdrawAmt <= users[msg.sender].accountBal, "Account lacks sufficient balance.");
-
+        
+        //If we dont have enough reserve, we need to ask funds from other banks
         if (withdrawAmt > bankReserve) {
             interBankTransfer(withdrawAmt - bankReserve);
             bankReserve = 0;
@@ -109,12 +112,15 @@ contract Bank {
         msg.sender.transfer(withdrawAmt);
     }
 
-    function deposit() external payable {                                   // deposit money in account
+    //Deposit amount into self account
+    function deposit() external payable {
         users[msg.sender].accountBal = getInterestWithBal(users[msg.sender].accountBal) + msg.value;
         bankReserve += msg.value;
     }
 
-    function lend(uint lendAmt) public {                                    // lend money from bank
+    //Lend money to bank users
+    function lend(uint lendAmt) public {
+        //Ask funds from other banks when there isn't enough funds
         if (lendAmt > bankReserve) {
             interBankTransfer(lendAmt - bankReserve);
             bankReserve = 0;
@@ -127,43 +133,44 @@ contract Bank {
         msg.sender.transfer(lendAmt);
     }
 
-    function repayLoan() external payable {                                 // repay open loan amount to bank
+    //Repay back the loan
+    function repayLoan() external payable {
         uint amount = msg.value;
         users[msg.sender].lendAmount = getInterestWithBal(users[msg.sender].lendAmount) - amount;
         bankReserve += amount;
     }
 
-    function getInterestRate() public view returns(uint) {                  // get current bank interest rate 
+    // Publically visible interest rate
+    function getInterestRate() public view returns(uint) {
         return interestRate;
     }
 
-    function updateInterestRate(uint newInterestRate) public {              // update current bank interest rate
+    //Update interest rate only by the owner
+    function updateInterestRate(uint newInterestRate) public {
         require(msg.sender == owner, "You are not allowed to update the interest rate!");
         require(0 < newInterestRate && newInterestRate < 100, "InterestRate must be within 0% and 100%");
         interestRate = newInterestRate;
     }
 
-    function internalCustomerTransfer(address destination, uint amount) external {  // transfer money from one account to another within bank 
+    //Customers can transfer funds from there bank to someone within the same bank
+    function interCustomerTransfer(address destination, uint amount) external {
         require(amount <= users[msg.sender].accountBal, "Balance is not sufficient");
         users[msg.sender].accountBal = getInterestWithBal(users[msg.sender].accountBal) - amount;
         users[destination].accountBal = getInterestWithBal(users[destination].accountBal) + amount;
     }
 
-    //TODO: external customer transfer
-    // This is not a hard requirement and quite frankly hard to implement. Dropping this for now.
-
-
+    //Interest is calculated based on months in simple interest
     function getInterestWithBal(uint balance) private returns(uint) {
         uint months = uint(ufixed(now- users[msg.sender].lastUpdateTime)/(60*60*24*30));
 
         ufixed interest = ufixed(balance *interestRate*months)/1200;
-        //uint interest = principle*(1+interestRate/100/12)**(months) - int(principle);     // Cannot implement compound interest as interestRate/100/12 will always result to 0 as we can't float ^ int in solidity
         users[msg.sender].lastUpdateTime = now;
         return balance + uint(interest);
     }
 
-    function interBankTransfer(uint amount) private {                   // transfer money from one bank to another
-        Bank[] memory bankList = cBank.getOtherBanks();         //TODO: does not work as expected
+    //API to get transfers from other banks
+    function interBankTransfer(uint amount) private payable {
+        Bank[] memory bankList = cBank.getOtherBanks();
 
         uint i = 0;
         uint len = bankList.length;
@@ -177,25 +184,17 @@ contract Bank {
             }
             i+=1;
         }
-        
-        address b = bankList[i];                                //TODO: due to error above, does not work as expected
-        
-        payBank(b, amount);
 
         if (i < len) {                                          // register inter bank transfer in central bank
-            cBank.registerTx(address(this), b, amount);
+            cBank.registerTx(this, bankList[i], amount);
         } else {                                                // get fund from central bank!
-            cBank.cbLend(address(this), amount);                //TODO: error
+            cBank.cbLend(msg.sender, amount);
         }
     }
 
-    function payBank(address payable b, uint amount) private { 
-        b.transfer(amount);
-    }
-
-    function repayCb(uint amount) public payable {              // repay central bank loans
-        cBank.repayCb(address(this), amount);
-        cBank.transfer(amount);                                 //TODO: this does not work. Get explicit address of CB and then transfer
+    function repayCb(uint amount) public payable {
+        cBank.repayCb(this, amount);
+        cBank.transfer(amount);                                 //TODO: check if this works??
     }
 
     function getAdvance(uint amount) public returns(bool) {
@@ -205,6 +204,7 @@ contract Bank {
 
         // Other Banks will also be treated as User
         users[msg.sender].lendAmount = getInterestWithBal(users[msg.sender].lendAmount) + amount;
+        msg.sender.transfer(amount);
 
         bankReserve -= amount;
         return true;
