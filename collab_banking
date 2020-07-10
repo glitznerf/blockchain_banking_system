@@ -21,7 +21,7 @@ contract CentralBank {
         uint interestRate;
     }
 
-    struct tx {                         // interbank transaction structure
+    struct tx {                         // Interbank transaction structure
         address lender;
         address receiver;
         uint time;
@@ -54,7 +54,7 @@ contract CentralBank {
         TxList.push(time);
     }
 
-    function cbLend(address payable receiver, uint amount) external {                      // central bank lending (to commercial bank only)
+    function cbLend(address payable receiver, uint amount) external {                      // Central bank lending to commercial bank only
         require(CbLoans+amount <= MaxCbLoans, "Amount exceeds max permitted CB loans!");
         registerTx(receiver, this, amount);
         CbLoans += amount;
@@ -175,8 +175,10 @@ contract Bank {
         uint i = 0;
         uint len = bankList.length;
         while (i < len) {
+            //Bank list shouldn't be the bank initiaing the call
             if (this != bankList[i]) {
                 Bank bank = bankList[i];
+                // getAdvance will return bool value based on if it can give return or not.
                 if(bank.getAdvance(amount)) {
                     bankReserve += amount;
                     break;
@@ -185,18 +187,20 @@ contract Bank {
             i+=1;
         }
 
-        if (i < len) {                                          // register inter bank transfer in central bank
+        if (i < len) {                                          // Register inter bank transfer in central bank!
             cBank.registerTx(this, bankList[i], amount);
-        } else {                                                // get fund from central bank!
+        } else {                                                // Get funds from central bank!
             cBank.cbLend(msg.sender, amount);
         }
     }
 
+    //Repay the central bank
     function repayCb(uint amount) public payable {
         cBank.repayCb(this, amount);
-        cBank.transfer(amount);                                 //TODO: check if this works??
+        cBank.transfer(amount);
     }
 
+    //Send advance to the requesting bank. Return false if bank lacks requireed funds
     function getAdvance(uint amount) public returns(bool) {
         if (bankReserve < amount) {
             return false;
