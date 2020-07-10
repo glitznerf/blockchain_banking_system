@@ -200,7 +200,7 @@ contract Bank {
         cBank.transfer(amount);
     }
 
-    //Send advance to the requesting bank. Return false if bank lacks requireed funds
+    //Send advance to the requesting bank. Return false if bank lacks required funds
     function getAdvance(uint amount) public returns(bool) {
         if (bankReserve < amount) {
             return false;
