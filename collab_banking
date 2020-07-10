@@ -14,6 +14,7 @@ contract CentralBank {
     uint CbLoans;
     uint MaxCbLoans = 100000000000000000000000000;
     uint maxInterestRate = 30;
+    uint minInterestRate = -10;
 
     struct bank {
         Bank bank;
@@ -34,8 +35,8 @@ contract CentralBank {
     uint[] TxList;
 
     function registerBank(Bank commBank, address owner, uint interestRate) external returns(bool){
-        if (0 <= interestRate && interestRate < maxInterestRate) {
-            //"InterestRate must be within 0% and 100%!"
+        if (minInterestRate <= interestRate && interestRate < maxInterestRate) {
+            //"InterestRate must be within limits!"
             return false;
         }
         banks[owner] = bank(commBank, owner, interestRate);
