@@ -179,8 +179,6 @@ contract Bank {
             i+=1;
         }
 
-        bankList[i].transfer(amount);
-
         if (i < len) {                                          // register inter bank transfer in central bank
             cBank.registerTx(this, bankList[i], amount);
         } else {                                                // get fund from central bank!
@@ -200,6 +198,7 @@ contract Bank {
 
         // Other Banks will also be treated as User
         users[msg.sender].lendAmount = getInterestWithBal(users[msg.sender].lendAmount) + amount;
+        msg.sender.transfer(amount);
 
         bankReserve -= amount;
         return true;
