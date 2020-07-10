@@ -14,58 +14,58 @@ contract CentralBank {
     uint CbLoans;
     uint MaxCbLoans = 100000000000000000000000000;
     uint maxInterestRate = 30;
-    
+
     struct bank {
         Bank bank;
         address owner;
         uint interestRate;
     }
-    
+
     struct tx {                         // interbank transaction structure
         address lender;
         address receiver;
         uint time;
         uint amount;
     }
-    
+
     mapping(address => bank) banks;
     Bank[] bankList;
     mapping(uint => tx) Tx;
     uint[] TxList;
-    
+
     function registerBank(Bank commBank, address owner, uint interestRate) external returns(bool){
         if (0 <= interestRate && interestRate < maxInterestRate) {
+            //"InterestRate must be within 0% and 100%!"
             return false;
         }
-        require(interestRate < maxInterestRate && interestRate >= 0, "InterestRate must be within 0% and 100%!");
         banks[owner] = bank(commBank, owner, interestRate);
         bankList.push(commBank);
-        
+
         return true;
     }
-    
+
     function getOtherBanks() external returns(Bank[] memory) {
         return bankList;
     }
-    
+
     function registerTx(address receiver, address lender, uint amount) public {
         uint time = uint(now);
         Tx[time] = (lender, receiver, time, amount);
         TxList.push(time);
     }
-    
+
     function cbLend(address payable receiver, uint amount) external {                      // central bank lending (to commercial bank only)
         require(CbLoans+amount <= MaxCbLoans, "Amount exceeds max permitted CB loans!");
         registerTx(receiver, this, amount);
         CbLoans += amount;
         receiver.transfer(amount);
     }
-    
+
     function repayCb(address sender, uint amount) external {
         registerTx(this, sender, amount);
         CbLoans -= amount;
     }
-    
+
 }
 
 contract Bank {
@@ -79,7 +79,7 @@ contract Bank {
         interestRate = 20;
         bankReserve = 1000;
         cBank = centralBank;
-        require(cBank.registerBank(this, owner, interestRate), "Interest rate condition was not met.");  
+        require(cBank.registerBank(this, owner, interestRate), "Interest rate condition was not met.");
     }
 
     struct accountHolder {
@@ -88,48 +88,48 @@ contract Bank {
         uint lastUpdateTime;
     }
 
-    mapping(address => accountHolder) customers;
-    
-    function accountInfo() public view returns(accountHolder) {
-        return customers[msg.sender];
+    mapping(address => accountHolder) users;
+
+    function accountInfo() public view returns(accountHolder memory) {
+        return users[msg.sender];
     }
-    
+
     function withdraw(uint withdrawAmt) external {
-        customers[msg.sender].accountBal = interestWithAmt(customers[msg.sender].accountBal);
-        require(withdrawAmt <= customers[msg.sender].accountBal, "Account lacks sufficient balance.");
-        
+        users[msg.sender].accountBal = getInterestWithBal(users[msg.sender].accountBal);
+        require(withdrawAmt <= users[msg.sender].accountBal, "Account lacks sufficient balance.");
+
         if (withdrawAmt > bankReserve) {
             interBankTransfer(withdrawAmt - bankReserve);
             bankReserve = 0;
         } else {
             bankReserve -= withdrawAmt;
         }
-        
-        customers[msg.sender].accountBal -= withdrawAmt;
+
+        users[msg.sender].accountBal -= withdrawAmt;
         msg.sender.transfer(withdrawAmt);
     }
 
     function deposit() external payable {
-        customers[msg.sender].accountBal = interestWithAmt(customers[msg.sender].accountBal) + msg.value;
+        users[msg.sender].accountBal = getInterestWithBal(users[msg.sender].accountBal) + msg.value;
         bankReserve += msg.value;
     }
 
     function lend(uint lendAmt) public {
-       if (lendAmt > bankReserve) {
+        if (lendAmt > bankReserve) {
             interBankTransfer(lendAmt - bankReserve);
             bankReserve = 0;
         } else {
             bankReserve -= lendAmt;
         }
-        
-        customers[msg.sender].lendAmount += lendAmt;
-        customers[msg.sender].lastUpdateTime = now;
+
+        users[msg.sender].lendAmount += lendAmt;
+        users[msg.sender].lastUpdateTime = now;
         msg.sender.transfer(lendAmt);
     }
 
     function repayLoan() external payable {
         uint amount = msg.value;
-        customers[msg.sender].lendAmount = interestWithAmt(customers[msg.sender].lendAmount) - amount;
+        users[msg.sender].lendAmount = getInterestWithBal(users[msg.sender].lendAmount) - amount;
         bankReserve += amount;
     }
 
@@ -144,28 +144,28 @@ contract Bank {
     }
 
     function internalCustomerTransfer(address destination, uint amount) external {
-        require(amount <= customers[msg.sender].accountBal, "Balance is not sufficient");
-        customers[msg.sender].accountBal = interestWithAmt(customers[msg.sender].accountBal) - amount;
-        customers[destination].accountBal = interestWithAmt(customers[destination].accountBal) + amount;
+        require(amount <= users[msg.sender].accountBal, "Balance is not sufficient");
+        users[msg.sender].accountBal = getInterestWithBal(users[msg.sender].accountBal) - amount;
+        users[destination].accountBal = getInterestWithBal(users[destination].accountBal) + amount;
     }
-    
+
     //TODO: external customer transfer!!
     // This is not a hard requirement and quite frankly hard to implement. Dropping this for now.
-    
-    
-   function interestWithAmt(uint principle) private returns(uint) {
-        uint months = uint(ufixed(now-customers[msg.sender].lastUpdateTime)/(60*60*24*30));
-        
-        ufixed interest = ufixed(principle*interestRate*months)/1200;
+
+
+    function getInterestWithBal(uint balance) private returns(uint) {
+        uint months = uint(ufixed(now- users[msg.sender].lastUpdateTime)/(60*60*24*30));
+
+        ufixed interest = ufixed(balance *interestRate*months)/1200;
         //uint interest = principle*(1+interestRate/100/12)**(months) - int(principle);
         //Commenting this as interestRate/100/12 will always result to 0 as we can't float ^ int in solidity
-        customers[msg.sender].lastUpdateTime = now;
-        return principle + uint(interest);
+        users[msg.sender].lastUpdateTime = now;
+        return balance + uint(interest);
     }
-    
+
     function interBankTransfer(uint amount) private payable {
-       Bank[] memory bankList = cBank.getOtherBanks();
-        
+        Bank[] memory bankList = cBank.getOtherBanks();
+
         uint i = 0;
         uint len = bankList.length;
         while (i < len) {
@@ -178,29 +178,28 @@ contract Bank {
             }
             i+=1;
         }
-        
+
         bankList[i].transfer(amount);
-        
-        
-        if (i < len) {                                          // register interbanktransfer in central bank
+
+        if (i < len) {                                          // register inter bank transfer in central bank
             cBank.registerTx(this, bankList[i], amount);
         } else {                                                // get fund from central bank!
             cBank.cbLend(msg.sender, amount);
         }
     }
-    
+
     function repayCb(uint amount) public payable {
         cBank.repayCb(this, amount);
         cBank.transfer(amount);                                 //TODO: check if this works??
     }
-    
+
     function getAdvance(uint amount) public returns(bool) {
         if (bankReserve < amount) {
             return false;
         }
-        
-        //TODO add interest for msg.sender
-        
+
+        // Other Banks will also be treated as User
+        users[msg.sender].lendAmount = getInterestWithBal(users[msg.sender].lendAmount) + amount;
 
         bankReserve -= amount;
         return true;
