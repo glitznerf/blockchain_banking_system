@@ -13,11 +13,12 @@ pragma solidity ^0.6.11;
 contract CentralBank {
     uint CbLoans;
     uint MaxCbLoans = 100000000000000000000000000;
+    uint maxInterestRate = 30;
     
     struct bank {
-        address adr;
+        Bank bank;
         address owner;
-        int interestRate;
+        uint interestRate;
     }
     
     struct tx {                         // interbank transaction structure
@@ -28,18 +29,23 @@ contract CentralBank {
     }
     
     mapping(address => bank) banks;
-    string[] bankAdr;
+    Bank[] bankList;
     mapping(uint => tx) Tx;
     uint[] TxList;
     
-    function registerBank(address adr, address owner, int interestRate) external {
-        require(-100 < interestRate < 100, "InterestRate must be within -100% and 100%!");
-        banks[adr] = bank(adr, owner, interestRate);
-        bankAdr.push(adr);
+    function registerBank(Bank commBank, address owner, uint interestRate) external returns(bool){
+        if (0 <= interestRate && interestRate < maxInterestRate) {
+            return false;
+        }
+        require(interestRate < maxInterestRate && interestRate >= 0, "InterestRate must be within 0% and 100%!");
+        banks[owner] = bank(commBank, owner, interestRate);
+        bankList.push(commBank);
+        
+        return true;
     }
     
-    function getOtherBanks() external returns(string[]) {
-        return bankAdr;
+    function getOtherBanks() external returns(Bank[] memory) {
+        return bankList;
     }
     
     function registerTx(address receiver, address lender, uint amount) public {
@@ -76,15 +82,15 @@ contract Bank {
         require(cBank.registerBank(this, owner, interestRate), "Interest rate condition was not met.");  
     }
 
-    struct account_holder {
+    struct accountHolder {
         uint accountBal;
         uint lendAmount;
         uint lastUpdateTime;
     }
 
-    mapping(address => account_holder) customers;
+    mapping(address => accountHolder) customers;
     
-    function accountInfo() public view returns(account_holder) {
+    function accountInfo() public view returns(accountHolder) {
         return customers[msg.sender];
     }
     
@@ -133,7 +139,7 @@ contract Bank {
 
     function updateInterestRate(uint newInterestRate) public {
         require(msg.sender == owner, "You are not allowed to update the interest rate!");
-        require(-100 < newInterestRate < 100, "InterestRate must be within -100% and 100%!");
+        require(0 < newInterestRate && newInterestRate < 100, "InterestRate must be within 0% and 100%");
         interestRate = newInterestRate;
     }
 
@@ -144,25 +150,27 @@ contract Bank {
     }
     
     //TODO: external customer transfer!!
+    // This is not a hard requirement and quite frankly hard to implement. Dropping this for now.
     
     
-    function interestWithAmt(uint principle) private returns(uint) {
+   function interestWithAmt(uint principle) private returns(uint) {
         uint months = uint(ufixed(now-customers[msg.sender].lastUpdateTime)/(60*60*24*30));
         
-        //ufixed interest = ufixed(principle*interestRate*months)/1200;
-        uint interest = principle*(1+interestRate/100/12)**(months) - int(principle);
+        ufixed interest = ufixed(principle*interestRate*months)/1200;
+        //uint interest = principle*(1+interestRate/100/12)**(months) - int(principle);
+        //Commenting this as interestRate/100/12 will always result to 0 as we can't float ^ int in solidity
         customers[msg.sender].lastUpdateTime = now;
         return principle + uint(interest);
     }
     
-    function interBankTransfer(uint amount) private {
-        Banks[] banksList = cBank.getOtherBanks();                  //TODO: Error!!
+    function interBankTransfer(uint amount) private payable {
+       Bank[] memory bankList = cBank.getOtherBanks();
         
         uint i = 0;
-        uint len = banksList.length;
+        uint len = bankList.length;
         while (i < len) {
-            if (this != banksList[i]) {
-                Bank bank = banksList[i];
+            if (this != bankList[i]) {
+                Bank bank = bankList[i];
                 if(bank.getAdvance(amount)) {
                     bankReserve += amount;
                     break;
@@ -171,18 +179,17 @@ contract Bank {
             i+=1;
         }
         
-        //TODO: needs an actual transfer of ETH using .transfer(amount) !!
+        bankList[i].transfer(amount);
         
         
         if (i < len) {                                          // register interbanktransfer in central bank
-            cBank.registerTx(this, banksList[i], amount);
-        }
-        else {                                                  // get fund from central bank!
+            cBank.registerTx(this, bankList[i], amount);
+        } else {                                                // get fund from central bank!
             cBank.cbLend(msg.sender, amount);
         }
     }
     
-    function repayCb(uint amount) public {
+    function repayCb(uint amount) public payable {
         cBank.repayCb(this, amount);
         cBank.transfer(amount);                                 //TODO: check if this works??
     }
